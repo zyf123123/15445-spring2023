@@ -25,7 +25,7 @@ namespace bustub {
 #define INDEX_TEMPLATE_ARGUMENTS template <typename KeyType, typename ValueType, typename KeyComparator>
 
 // define page type enum
-enum class IndexPageType { INVALID_INDEX_PAGE = 0, LEAF_PAGE, INTERNAL_PAGE };
+enum class IndexPageType { INVALID_INDEX_PAGE = 0, LEAF_PAGE = 1, INTERNAL_PAGE = 2 };
 
 /**
  * Both internal and leaf page are inherited from this page.
@@ -56,11 +56,15 @@ class BPlusTreePage {
   void SetMaxSize(int max_size);
   auto GetMinSize() const -> int;
 
+  auto GetPageId() const -> page_id_t;
+  void SetPageId(page_id_t page_id);
+
  private:
   // member variable, attributes that both internal and leaf page share
-  IndexPageType page_type_ __attribute__((__unused__));
-  int size_ __attribute__((__unused__));
-  int max_size_ __attribute__((__unused__));
+  IndexPageType page_type_;
+  int size_;
+  int max_size_;
+  int page_id_;
 };
 
 }  // namespace bustub

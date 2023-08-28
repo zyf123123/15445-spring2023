@@ -45,7 +45,7 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    * the creation of a new page to make a valid BPlusTreeInternalPage
    * @param max_size Maximal size of the page
    */
-  void Init(int max_size = INTERNAL_PAGE_SIZE);
+  void Init(int max_size = INTERNAL_PAGE_SIZE, page_id_t page_id = INVALID_PAGE_ID);
 
   /**
    * @param index The index of the key to get. Index must be non-zero.
@@ -68,11 +68,41 @@ class BPlusTreeInternalPage : public BPlusTreePage {
 
   /**
    *
+   * @param key the key to search for
+   * if key is not found, return the index of the first key that is smaller than key
+   */
+  auto KeyIndexSearch(const KeyType &key, KeyComparator comparator) const -> int;
+
+  /**
+   *
+   * @param index the index
+   * @return the value at the index
+   */
+
+  /**
+   *
+   * @param key the key to search for
+   * if key is not found, return the index of the first key that is larger than key
+   */
+  auto KeyIndexInsert(const KeyType &key, KeyComparator comparator) const -> int;
+
+  /**
+   *
    * @param index the index
    * @return the value at the index
    */
   auto ValueAt(int index) const -> ValueType;
 
+  /**
+   *
+   * @param value the value to insert into the page
+   * @return true if the insertion succeeded, false otherwise
+   */
+  auto Insert(KeyType key, ValueType value, KeyComparator comparator) -> bool;
+
+  auto Remove(KeyType key, KeyComparator comparator) -> bool;
+
+  auto MoveHalfTo(BPlusTreeInternalPage *recipient) -> void;
   /**
    * @brief For test only, return a string representing all keys in
    * this internal page, formatted as "(key1,key2,key3,...)"
