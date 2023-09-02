@@ -118,13 +118,44 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Remove(KeyType key, KeyComparator comparato
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveHalfTo(BPlusTreeInternalPage *recipient) -> void {
-  int start = GetSize() / 2;
+  int start = (GetSize()) / 2 + 1;
   int end = GetSize();
   for (int i = start; i < end; i++) {
     recipient->array_[i - start] = array_[i];
   }
   recipient->IncreaseSize(end - start);
   IncreaseSize(-end + start);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveAllTo(BPlusTreeInternalPage *recipient) -> void {
+  int start = 0;
+  int end = GetSize();
+  for (int i = start; i < end; i++) {
+    recipient->array_[recipient->GetSize() + i] = array_[i];
+  }
+  recipient->IncreaseSize(end - start);
+  IncreaseSize(-end + start);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveFirstToEnd(BPlusTreeInternalPage *recipient) -> void {
+  recipient->array_[recipient->GetSize()] = array_[0];
+  recipient->IncreaseSize(1);
+  for (int i = 0; i < GetSize() - 1; i++) {
+    array_[i] = array_[i + 1];
+  }
+  IncreaseSize(-1);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::MoveLastToFront(BPlusTreeInternalPage *recipient) -> void {
+  for (int i = recipient->GetSize(); i > 0; i--) {
+    recipient->array_[i] = recipient->array_[i - 1];
+  }
+  recipient->array_[0] = array_[GetSize() - 1];
+  recipient->IncreaseSize(1);
+  IncreaseSize(-1);
 }
 
 // valuetype for internalNode should be page id_t

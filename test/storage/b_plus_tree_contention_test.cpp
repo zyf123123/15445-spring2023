@@ -58,7 +58,9 @@ bool BPlusTreeLockBenchmarkCall(size_t num_threads, int leaf_node_size, bool wit
         if (with_global_mutex) {
           mtx.unlock();
         }
+        // std::cout << tree.DrawBPlusTree();
       }
+
       delete transaction;
     };
     auto t = std::thread(std::move(func));

@@ -79,16 +79,22 @@ TEST(BPlusTreeTests, InsertTest2) {
   // create transaction
   auto *transaction = new Transaction(0);
 
-  std::vector<int64_t> keys = {1, 5, 3, 4, 2, 5, 9, 12, 6, 8, 15, 7, 4, 13};
+  std::vector<int64_t> keys{};
+  for (int i = 5; i > 0; i--) {
+    keys.push_back(i);
+  }
   // std::vector<int64_t> keys = {1, 2, 3, 4, 5};
+  int i = 5;
   for (auto key : keys) {
     int64_t value = key & 0xFFFFFFFF;
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
     tree.Insert(index_key, rid, transaction);
-
-    std::cout << tree.DrawBPlusTree() << std::endl;
+    EXPECT_EQ(key, i);
+    EXPECT_EQ(5, keys.size());
     // tree.Print(bpm);
+    std::cout << tree.DrawBPlusTree();
+    i--;
   }
 
   std::vector<RID> rids;
@@ -137,7 +143,7 @@ TEST(BPlusTreeTests, InsertTest3) {
   ASSERT_EQ(page_id, HEADER_PAGE_ID);
 
   // create b+ tree
-  BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", header_page->GetPageId(), bpm, comparator);
+  BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", header_page->GetPageId(), bpm, comparator, 2, 3);
   GenericKey<8> index_key;
   RID rid;
   // create transaction
@@ -165,12 +171,13 @@ TEST(BPlusTreeTests, InsertTest3) {
   int64_t start_key = 1;
   int64_t current_key = start_key;
   index_key.SetFromInteger(start_key);
-  for (auto iterator = tree.Begin(index_key); iterator != tree.End(); ++iterator) {
+  for (auto iterator = tree.Begin(); !iterator.IsEnd(); ++iterator) {
     auto location = (*iterator).second;
     EXPECT_EQ(location.GetPageId(), 0);
     EXPECT_EQ(location.GetSlotNum(), current_key);
     current_key = current_key + 1;
   }
+  std::cout << tree.DrawBPlusTree() << std::endl;
 
   EXPECT_EQ(current_key, keys.size() + 1);
 

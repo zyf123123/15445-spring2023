@@ -33,7 +33,7 @@ void BPlusTreePage::SetSize(int size) {
   size_ = size;
 }
 void BPlusTreePage::IncreaseSize(int amount) {
-  assert(size_ + amount >= 0 && size_ + amount <= GetMaxSize() + 1);
+  assert(size_ + amount >= 0 && size_ + amount <= GetMaxSize());
   size_ += amount;
 }
 

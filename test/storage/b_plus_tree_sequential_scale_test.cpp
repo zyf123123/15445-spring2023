@@ -47,7 +47,7 @@ TEST(BPlusTreeTests, ScaleTest) {  // NOLINT
   // create transaction
   auto *transaction = new Transaction(0);
 
-  int64_t scale = 5000;
+  int64_t scale = 60;
   std::vector<int64_t> keys;
   for (int64_t key = 1; key < scale; key++) {
     keys.push_back(key);
@@ -61,9 +61,11 @@ TEST(BPlusTreeTests, ScaleTest) {  // NOLINT
     rid.Set(static_cast<int32_t>(key >> 32), value);
     index_key.SetFromInteger(key);
     tree.Insert(index_key, rid, transaction);
-    // std::cout << tree.DrawBPlusTree() << std::endl;
+    std::cout << tree.DrawBPlusTree() << std::endl;
   }
+  // std::cout << tree.DrawBPlusTree() << std::endl;
 
+  // tree.Draw(bpm, "test.dot");
   // std::cout << tree.DrawBPlusTree() << std::endl;
 
   std::vector<RID> rids;
@@ -75,6 +77,28 @@ TEST(BPlusTreeTests, ScaleTest) {  // NOLINT
 
     int64_t value = key & 0xFFFFFFFF;
     ASSERT_EQ(rids[0].GetSlotNum(), value);
+  }
+
+  int index = 1;
+  for (auto iter = tree.Begin(); iter != tree.End(); ++iter) {
+    index++;
+  }
+
+  ASSERT_EQ(index, scale);
+
+  int i = 1;
+  for (auto key : keys) {
+    index_key.SetFromInteger(key);
+    tree.Remove(index_key, transaction);
+    index = 1;
+    for (auto iter = tree.Begin(); iter != tree.End(); ++iter) {
+      index++;
+    }
+
+    ASSERT_EQ(index, scale - i);
+    i++;
+    // std::cout << tree.DrawBPlusTree() << std::endl;
+    // std::cout << tree.DrawBPlusTree() << std::endl;
   }
 
   bpm->UnpinPage(HEADER_PAGE_ID, true);

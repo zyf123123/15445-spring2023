@@ -77,9 +77,14 @@ class BPlusTreeLeafPage : public BPlusTreePage {
    * @param value the value to insert into the page
    * @return true if the insertion succeeded, false otherwise
    */
+
+  auto KVPairsAt(int index) const -> const MappingType &;
+
   auto Insert(const KeyType &key, const ValueType &value, KeyComparator comparator) -> bool;
 
   auto MoveHalfTo(BPlusTreeLeafPage *recipient) -> void;
+
+  auto Remove(const KeyType &key, KeyComparator comparator) -> void;
 
   /**
    * fd  for test only return a string representing all keys in

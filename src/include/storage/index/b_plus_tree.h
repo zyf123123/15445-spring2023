@@ -31,7 +31,6 @@
 namespace bustub {
 
 struct PrintableBPlusTree;
-
 /**
  * @brief Definition of the Context class.
  *
@@ -73,7 +72,7 @@ class BPlusTree {
   auto IsEmpty() const -> bool;
 
   // Get a leaf page id from the given key.
-  auto GetLeafPage(KeyType key) const -> page_id_t;
+  auto GetLeafPage(const KeyType &key) const -> page_id_t;
 
   // Insert a key-value pair into this B+ tree.
   auto Insert(const KeyType &key, const ValueType &value, Transaction *txn = nullptr) -> bool;
@@ -81,11 +80,16 @@ class BPlusTree {
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key, Transaction *txn);
 
+  void RemoveEntry(page_id_t leaf_page_id, const KeyType &key, Transaction *txn);
+
   // Return the value associated with a given key
   auto GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *txn = nullptr) -> bool;
 
   // Return the page id of the root node
   auto GetRootPageId() -> page_id_t;
+
+  // Set the page id of the root node
+  void SetRootPageId(page_id_t root_page_id);
 
   // Index iterator
   auto Begin() -> INDEXITERATOR_TYPE;
@@ -152,6 +156,7 @@ class BPlusTree {
   int leaf_max_size_;
   int internal_max_size_;
   page_id_t header_page_id_;
+  std::mutex latch_;
 };
 
 /**

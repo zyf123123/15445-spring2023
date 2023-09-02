@@ -103,6 +103,13 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   auto Remove(KeyType key, KeyComparator comparator) -> bool;
 
   auto MoveHalfTo(BPlusTreeInternalPage *recipient) -> void;
+
+  auto MoveAllTo(BPlusTreeInternalPage *recipient) -> void;
+
+  auto MoveFirstToEnd(BPlusTreeInternalPage *recipient) -> void;
+
+  auto MoveLastToFront(BPlusTreeInternalPage *recipient) -> void;
+
   /**
    * @brief For test only, return a string representing all keys in
    * this internal page, formatted as "(key1,key2,key3,...)"
