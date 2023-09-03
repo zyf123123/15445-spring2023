@@ -84,6 +84,8 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
   auto MoveHalfTo(BPlusTreeLeafPage *recipient) -> void;
 
+  auto MoveLastToFront(BPlusTreeLeafPage *recipient) -> void;
+
   auto Remove(const KeyType &key, KeyComparator comparator) -> void;
 
   /**

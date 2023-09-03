@@ -61,7 +61,7 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::ValueAt(int index) const -> ValueType {
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_LEAF_PAGE_TYPE::KVPairsAt(int index) const -> const MappingType & {
-  // assert(index >= 0 && index < GetSize());
+  assert(index >= 0 && index < GetSize());
   return array_[index];
 }
 
@@ -115,6 +115,16 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::MoveHalfTo(BPlusTreeLeafPage *recipient) -> voi
   }
   recipient->IncreaseSize(end - start);
   IncreaseSize(-end + start);
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_LEAF_PAGE_TYPE::MoveLastToFront(BPlusTreeLeafPage *recipient) -> void {
+  for (int i = recipient->GetSize(); i > 0; i--) {
+    recipient->array_[i] = recipient->array_[i - 1];
+  }
+  recipient->array_[0] = array_[GetSize() - 1];
+  recipient->IncreaseSize(1);
+  IncreaseSize(-1);
 }
 
 INDEX_TEMPLATE_ARGUMENTS

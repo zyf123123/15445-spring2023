@@ -13,6 +13,7 @@
 #include <chrono>  // NOLINT
 #include <cstdio>
 #include <functional>
+#include <random>
 #include <thread>  // NOLINT
 
 #include "buffer/buffer_pool_manager.h"
@@ -116,6 +117,10 @@ void LookupHelper(BPlusTree<GenericKey<8>, RID, GenericComparator<8>> *tree, con
     index_key.SetFromInteger(key);
     std::vector<RID> result;
     bool res = tree->GetValue(index_key, &result, transaction);
+    if (!res) {
+      std::cout << "key: " << key << std::endl;
+      std::cout << tree->GetValue(index_key, &result, transaction);
+    }
     ASSERT_EQ(res, true);
     ASSERT_EQ(result.size(), 1);
     ASSERT_EQ(result[0], rid);
@@ -137,7 +142,7 @@ TEST(BPlusTreeConcurrentTest, InsertTest1) {
   BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", header_page->GetPageId(), bpm, comparator);
   // keys to Insert
   std::vector<int64_t> keys;
-  int64_t scale_factor = 100;
+  int64_t scale_factor = 10000;
   for (int64_t key = 1; key < scale_factor; key++) {
     keys.push_back(key);
   }
@@ -184,7 +189,7 @@ TEST(BPlusTreeConcurrentTest, InsertTest2) {
   BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", header_page->GetPageId(), bpm, comparator);
   // keys to Insert
   std::vector<int64_t> keys;
-  int64_t scale_factor = 100;
+  int64_t scale_factor = 10000;
   for (int64_t key = 1; key < scale_factor; key++) {
     keys.push_back(key);
   }
@@ -311,27 +316,38 @@ TEST(BPlusTreeConcurrentTest, MixTest1) {
   BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", header_page->GetPageId(), bpm, comparator);
   GenericKey<8> index_key;
   // first, populate index
-  std::vector<int64_t> keys = {1, 2, 3, 4, 5};
-  InsertHelper(&tree, keys);
+  int64_t scale = 6000;
+  std::vector<int64_t> keys;
+  for (int64_t key = 1; key <= scale; key++) {
+    keys.push_back(key);
+  }
+  auto rng = std::default_random_engine{};
+  std::shuffle(keys.begin(), keys.end(), rng);
+
+  // InsertHelper(&tree, keys);
 
   // concurrent insert
-  keys.clear();
-  for (int i = 6; i <= 10; i++) {
-    keys.push_back(i);
+  int64_t remove_scale = 6000;
+  std::vector<int64_t> remove_keys;
+  for (int64_t key = 2; key <= remove_scale; key += 2) {
+    remove_keys.push_back(key);
   }
-  LaunchParallelTest(1, InsertHelper, &tree, keys);
-  // concurrent delete
-  std::vector<int64_t> remove_keys = {1, 4, 3, 5, 6};
-  LaunchParallelTest(1, DeleteHelper, &tree, remove_keys);
 
-  int64_t start_key = 2;
+  std::shuffle(remove_keys.begin(), remove_keys.end(), rng);
+
+  LaunchParallelTest(2, InsertHelper, &tree, keys);
+  // concurrent delete
+  // std::vector<int64_t> remove_keys = {1, 4, 3, 5, 6};
+  LaunchParallelTest(2, DeleteHelper, &tree, remove_keys);
+
+  int64_t start_key = 1;
   int64_t size = 0;
   index_key.SetFromInteger(start_key);
-  for (auto iterator = tree.Begin(index_key); iterator != tree.End(); ++iterator) {
+  for (auto iterator = tree.Begin(); iterator != tree.End(); ++iterator) {
     size = size + 1;
   }
 
-  EXPECT_EQ(size, 5);
+  EXPECT_EQ(size, scale - remove_scale / 2);
 
   bpm->UnpinPage(HEADER_PAGE_ID, true);
   delete bpm;
@@ -351,13 +367,13 @@ TEST(BPlusTreeConcurrentTest, MixTest2) {
   (void)header_page;
 
   // create b+ tree
-  BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", page_id, bpm, comparator);
+  BPlusTree<GenericKey<8>, RID, GenericComparator<8>> tree("foo_pk", page_id, bpm, comparator, 2, 3);
 
   // Add perserved_keys
   std::vector<int64_t> perserved_keys;
   std::vector<int64_t> dynamic_keys;
-  int64_t total_keys = 4000;
-  int64_t sieve = 5;
+  int64_t total_keys = 1000;
+  int64_t sieve = 2;
   for (int64_t i = 1; i <= total_keys; i++) {
     if (i % sieve == 0) {
       perserved_keys.push_back(i);
@@ -366,6 +382,8 @@ TEST(BPlusTreeConcurrentTest, MixTest2) {
     }
   }
   InsertHelper(&tree, perserved_keys, 1);
+  DeleteHelper(&tree, dynamic_keys, 1);
+  LookupHelper(&tree, perserved_keys, 1);
   // Check there are 1000 keys in there
   size_t size;
 
@@ -390,11 +408,14 @@ TEST(BPlusTreeConcurrentTest, MixTest2) {
 
   // Check all reserved keys exist
   size = 0;
-  std::cout << tree.DrawBPlusTree();
+  // std::cout << tree.DrawBPlusTree();
   for (auto iter = tree.Begin(); iter != tree.End(); ++iter) {
     const auto &pair = *iter;
     if ((pair.first).ToString() % sieve == 0) {
+      ASSERT_EQ((pair.first).ToString(), perserved_keys[size]);
       size++;
+    } else {
+      std::cout << "key: " << (pair.first).ToString() << std::endl;
     }
   }
 

@@ -45,7 +45,10 @@ auto BPLUSTREE_TYPE::GetLeafPage(const KeyType &key) const -> page_id_t {
   // find the leaf page
   while (!root_page->IsLeafPage()) {
     auto internal_page = root_guard.template As<InternalPage>();
-    int index = internal_page->KeyIndexSearch(key, comparator_);
+    int index = internal_page->KeyIndex(key, comparator_);
+    if (index == -1) {
+      return INVALID_PAGE_ID;
+    }
     page_id_t child_id = internal_page->ValueAt(index);
     root_guard = bpm_->FetchPageRead(child_id);
     root_page = root_guard.template As<BPlusTreePage>();
@@ -64,21 +67,30 @@ auto BPLUSTREE_TYPE::GetLeafPage(const KeyType &key) const -> page_id_t {
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *txn) -> bool {
   // Declaration of context instance.
-  // std::cout << "get value" << key << std::endl;
-  // std::cout << this->DrawBPlusTree();
-  Context ctx;
-  auto leafpage = GetLeafPage(key);
-  if (leafpage == INVALID_PAGE_ID) {
+
+  if (IsEmpty()) {
     return false;
   }
-  auto guard = bpm_->FetchPageRead(leafpage);
-  auto leaf = guard.template As<LeafPage>();
-  int index = leaf->KeyIndex(key, comparator_);
+  auto root_guard = bpm_->FetchPageRead(header_page_id_);
+  auto root_page = root_guard.template As<BPlusTreePage>();
+  // find the leaf page
+  while (!root_page->IsLeafPage()) {
+    auto internal_page = root_guard.template As<InternalPage>();
+    int index = internal_page->KeyIndex(key, comparator_);
+    if (index == -1) {
+      return false;
+    }
+    page_id_t child_id = internal_page->ValueAt(index);
+    root_guard = bpm_->FetchPageRead(child_id);
+    root_page = root_guard.template As<BPlusTreePage>();
+  }
+  auto leaf_page = root_guard.template As<LeafPage>();
+  int index = leaf_page->KeyIndex(key, comparator_);
   if (index == -1) {
     return false;
   }
   if (result != nullptr) {
-    result->push_back(leaf->ValueAt(index));
+    result->push_back(leaf_page->ValueAt(index));
   }
   return true;
 }
@@ -98,12 +110,13 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   // Declaration of context instance.
   Context ctx;
   ctx.root_page_id_ = GetRootPageId();
-  // std::cout << "insert key" << key << " value " << value << std::endl;
-  // // LOG_INFO("insert key: header page id %d", header_page_id_);
+  // std::cout << "insert key" << key;
+  // LOG_INFO("insert key: header page id %d", header_page_id_);
   // if empty, start new tree
   latch_.lock();
   if (IsEmpty()) {
-    auto *leaf = reinterpret_cast<LeafPage *>(bpm_->NewPage(&ctx.root_page_id_)->GetData());
+    auto leaf_guard = bpm_->NewPageGuarded(&ctx.root_page_id_);
+    auto leaf = leaf_guard.AsMut<LeafPage>();
     this->header_page_id_ = ctx.root_page_id_;
     latch_.unlock();
     leaf->Init(leaf_max_size_, ctx.root_page_id_);
@@ -119,6 +132,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
     ctx.root_page_id_ = GetRootPageId();
     root_guard = bpm_->FetchPageWrite(ctx.root_page_id_);
   }
+
   // LOG_INFO("Fetch write guard: %d", header_page_id_);
   auto root_page = root_guard.template AsMut<BPlusTreePage>();
   // ctx.header_page_ = std::move(root_guard);
@@ -126,12 +140,15 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   int depth = -1;
   while (!root_page->IsLeafPage()) {
     auto internal_page = reinterpret_cast<InternalPage *>(root_page);
-    int index = internal_page->KeyIndexSearch(key, comparator_);
+    int index = internal_page->KeyIndex(key, comparator_);
+    if (index == -1) {
+      return false;
+    }
     page_id_t child_id = internal_page->ValueAt(index);
     ctx.write_set_.push_back(std::move(root_guard));
     root_guard = bpm_->FetchPageWrite(child_id);
     // LOG_INFO("Fetch write guard: %d", child_id);
-
+    root_page = root_guard.template AsMut<BPlusTreePage>();
     depth++;
   }
 
@@ -140,14 +157,19 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   auto leaf = root_guard.template AsMut<LeafPage>();
   if (leaf->KeyIndex(key, comparator_) != -1) {
     // has value
-    // LOG_INFO("Drop write guard: %d", leaf->GetPageId());
     return false;
   }
   // has less than n-1 key values
   if (leaf->GetSize() < leaf->GetMaxSize() - 1) {
     // LOG_INFO("insert key: leaf page id %d", leaf->GetPageId());
     // LOG_INFO("Drop write guard: %d", leaf->GetPageId());
-    return leaf->Insert(key, value, comparator_);
+    bool success = leaf->Insert(key, value, comparator_);
+    if (depth > 0) {
+      auto parent_page = reinterpret_cast<InternalPage *>(ctx.write_set_[depth].template AsMut<BPlusTreePage>());
+      int index = parent_page->KeyIndex(key, comparator_);
+      parent_page->SetKeyAt(index, leaf->KeyAt(0));
+    }
+    return success;
   }
   // split
   page_id_t new_page_id = INVALID_PAGE_ID;
@@ -159,17 +181,16 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   KeyType remove_key = leaf->KeyAt(0);
 
   leaf->MoveHalfTo(new_leaf);
-  if (new_leaf->GetSize() == 0 && comparator_(key, leaf->KeyAt(0)) < 0) {
-    // insert into left page
-    new_leaf->SetNextPageId(leaf->GetPageId());
-  } else {
-    // insert into right page
-    new_leaf->SetNextPageId(leaf->GetNextPageId());
-    leaf->SetNextPageId(new_leaf->GetPageId());
+  if (new_leaf->GetSize() == 0 && comparator_(key, leaf->KeyAt(leaf->GetSize() - 1)) < 0) {
+    // key < leaf[0] will be insert at left page
+    leaf->MoveLastToFront(new_leaf);
   }
+  // insert into right page
+  new_leaf->SetNextPageId(leaf->GetNextPageId());
+  leaf->SetNextPageId(new_leaf->GetPageId());
 
   bool success;
-  if (new_leaf->GetSize() != 0 && comparator_(key, new_leaf->KeyAt(0)) < 0) {
+  if ((leaf->GetSize() == 0) || (new_leaf->GetSize() != 0 && comparator_(key, new_leaf->KeyAt(0)) < 0)) {
     // insert into left page
     success = leaf->Insert(key, value, comparator_);
   } else {
@@ -178,8 +199,6 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   }
 
   if (!success) {
-    // LOG_INFO("Drop write guard: %d", leaf->GetPageId());
-    // LOG_INFO("Drop basic guard: %d", new_leaf->GetPageId());
     return false;
   }
 
@@ -305,7 +324,6 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
     depth--;
   }
 
-  ctx.write_set_.clear();
   return true;
 }
 
@@ -325,17 +343,12 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key, Transaction *txn) {
   if (IsEmpty()) {
     return;
   }
-  if (GetValue(key, nullptr, txn)) {
-    // has value, remove from leaf page
-    // std::cout << "delete key" << key << std::endl;
-    auto leaf_page = GetLeafPage(key);
-    RemoveEntry(leaf_page, key, txn);
-    return;
-  }
+  // std::cout << "delete key" << key;
+  RemoveEntry(key, txn);
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void BPLUSTREE_TYPE::RemoveEntry(page_id_t leaf_page_id, const KeyType &key, Transaction *txn) {
+void BPLUSTREE_TYPE::RemoveEntry(const KeyType &key, Transaction *txn) {
   // Declaration of context instance.
   Context ctx;
   ctx.root_page_id_ = GetRootPageId();
@@ -354,7 +367,10 @@ void BPLUSTREE_TYPE::RemoveEntry(page_id_t leaf_page_id, const KeyType &key, Tra
   // find leaf page
   while (!root_page->IsLeafPage()) {
     auto internal_page = reinterpret_cast<InternalPage *>(root_page);
-    int index = internal_page->KeyIndexSearch(key, comparator_);
+    int index = internal_page->KeyIndex(key, comparator_);
+    if (index == -1) {
+      return;
+    }
     if (index != 0) {
       // not first leaf page
       is_first_leaf = false;
@@ -363,16 +379,15 @@ void BPLUSTREE_TYPE::RemoveEntry(page_id_t leaf_page_id, const KeyType &key, Tra
     ctx.write_set_.push_back(std::move(root_guard));
     root_guard = bpm_->FetchPageWrite(child_id);
     root_page = root_guard.template AsMut<BPlusTreePage>();
-
     depth++;
   }
 
   auto leaf = root_guard.template AsMut<LeafPage>();
-  if (leaf->KeyIndex(key, comparator_) == -1) {
+  int lindex = leaf->KeyIndex(key, comparator_);
+  if (lindex == -1) {
     // not found
     return;
   }
-
   if (leaf->GetPageId() == ctx.root_page_id_) {
     // header page is leaf page
     leaf->Remove(key, comparator_);
@@ -394,15 +409,14 @@ void BPLUSTREE_TYPE::RemoveEntry(page_id_t leaf_page_id, const KeyType &key, Tra
   if (leaf->GetSize() == 0) {
     // empty, change next page id
     auto int_page = reinterpret_cast<InternalPage *>(ctx.write_set_[depth].template AsMut<BPlusTreePage>());
-    int index = int_page->KeyIndexSearch(key, comparator_);
+    int index = int_page->KeyIndex(key, comparator_);
     if (is_first_leaf) {
       // no need to change next page id
-      leaf->SetNextPageId(INVALID_PAGE_ID);
     } else {
       int d = depth - 1;
       while (index == 0) {
         auto par_page = reinterpret_cast<InternalPage *>(ctx.write_set_[d].template AsMut<BPlusTreePage>());
-        index = par_page->KeyIndexSearch(key, comparator_);
+        index = par_page->KeyIndex(key, comparator_);
         d--;
       }
       index--;
@@ -419,7 +433,6 @@ void BPLUSTREE_TYPE::RemoveEntry(page_id_t leaf_page_id, const KeyType &key, Tra
       }
       auto lef = lef_guard.template AsMut<LeafPage>();
       lef->SetNextPageId(leaf->GetNextPageId());
-      leaf->SetNextPageId(INVALID_PAGE_ID);
     }
     bpm_->DeletePage(leaf->GetPageId());
   } else {
@@ -458,7 +471,10 @@ void BPLUSTREE_TYPE::RemoveEntry(page_id_t leaf_page_id, const KeyType &key, Tra
     // ctx.write_set_.back() = std::move(parent_guard);
 
     // find slibing page
-    int index = parent_page->KeyIndexSearch(key, comparator_);
+    int index = parent_page->KeyIndex(key, comparator_);
+    if (index == -1) {
+      return;
+    }
     page_id_t sibling_id;
     if (index == 0) {
       sibling_id = parent_page->ValueAt(index + 1);
@@ -471,11 +487,11 @@ void BPLUSTREE_TYPE::RemoveEntry(page_id_t leaf_page_id, const KeyType &key, Tra
     if (sibling_page->GetSize() > sibling_page->GetMinSize()) {
       // redistribute
       if (index == 0) {
-        // left sibling
+        // right sibling
         sibling_page->MoveFirstToEnd(internal_page);
         parent_page->SetKeyAt(1, sibling_page->KeyAt(0));
       } else {
-        // right sibling
+        // left sibling
         sibling_page->MoveLastToFront(internal_page);
         parent_page->SetKeyAt(index, internal_page->KeyAt(0));
       }
@@ -483,14 +499,14 @@ void BPLUSTREE_TYPE::RemoveEntry(page_id_t leaf_page_id, const KeyType &key, Tra
     }
     // merge
     if (index == 0) {
-      // left sibling
+      // right sibling
       KeyType remove_key = sibling_page->KeyAt(0);
       sibling_page->MoveAllTo(internal_page);
       parent_page->Remove(remove_key, comparator_);
       // LOG_INFO("remove key: internal page id %d", parent_page->GetPageId());
       bpm_->DeletePage(sibling_page->GetPageId());
     } else {
-      // right sibling
+      // left sibling
       KeyType remove_key = internal_page->KeyAt(0);
       internal_page->MoveAllTo(sibling_page);
       parent_page->Remove(remove_key, comparator_);
@@ -532,18 +548,26 @@ auto BPLUSTREE_TYPE::Begin() -> INDEXITERATOR_TYPE {
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::Begin(const KeyType &key) -> INDEXITERATOR_TYPE {
-  page_id_t page_id = GetLeafPage(key);
-  if (page_id == INVALID_PAGE_ID) {
-    return INDEXITERATOR_TYPE(INVALID_PAGE_ID, 0, bpm_);
+  auto root_guard = bpm_->FetchPageRead(header_page_id_);
+  auto root_page = root_guard.template As<BPlusTreePage>();
+  // find the leaf page
+  while (!root_page->IsLeafPage()) {
+    auto internal_page = root_guard.template As<InternalPage>();
+    int index = internal_page->KeyIndex(key, comparator_);
+    if (index == -1) {
+      return INDEXITERATOR_TYPE(INVALID_PAGE_ID, 0, bpm_);
+    }
+    page_id_t child_id = internal_page->ValueAt(index);
+    root_guard = bpm_->FetchPageRead(child_id);
+    root_page = root_guard.template As<BPlusTreePage>();
   }
-  auto guard = bpm_->FetchPageRead(page_id);
-  auto leaf_page = guard.template As<LeafPage>();
+  auto leaf_page = root_guard.template As<LeafPage>();
   int index = leaf_page->KeyIndex(key, comparator_);
   if (index == -1) {
     // not found
     return INDEXITERATOR_TYPE(INVALID_PAGE_ID, 0, bpm_);
   }
-  return INDEXITERATOR_TYPE(page_id, index, bpm_);
+  return INDEXITERATOR_TYPE(leaf_page->GetPageId(), index, bpm_);
 }
 
 /*

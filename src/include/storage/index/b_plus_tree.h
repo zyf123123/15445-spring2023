@@ -80,7 +80,7 @@ class BPlusTree {
   // Remove a key and its value from this B+ tree.
   void Remove(const KeyType &key, Transaction *txn);
 
-  void RemoveEntry(page_id_t leaf_page_id, const KeyType &key, Transaction *txn);
+  void RemoveEntry(const KeyType &key, Transaction *txn);
 
   // Return the value associated with a given key
   auto GetValue(const KeyType &key, std::vector<ValueType> *result, Transaction *txn = nullptr) -> bool;

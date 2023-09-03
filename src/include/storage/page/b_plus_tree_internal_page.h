@@ -86,6 +86,8 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    */
   auto KeyIndexInsert(const KeyType &key, KeyComparator comparator) const -> int;
 
+  auto KeyIndex(const KeyType &key, KeyComparator comparator) const -> int;
+
   /**
    *
    * @param index the index

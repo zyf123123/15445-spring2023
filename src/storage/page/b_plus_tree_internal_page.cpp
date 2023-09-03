@@ -62,7 +62,7 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const -> ValueType {
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyIndexSearch(const KeyType &key, KeyComparator comparator) const -> int {
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyIndex(const KeyType &key, KeyComparator comparator) const -> int {
   if (GetSize() == 0) {
     // first key in index 0
     return 0;
@@ -74,7 +74,27 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyIndexSearch(const KeyType &key, KeyCompa
   if (res == array_) {
     return 0;
   }
+
   return res - array_ - 1;
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyIndexSearch(const KeyType &key, KeyComparator comparator) const -> int {
+  if (GetSize() == 0) {
+    // first key in index 0
+    return 0;
+  }
+  int res = std::lower_bound(
+                array_, array_ + GetSize(), MappingType(key, ValueType()),
+                [&comparator](MappingType a, MappingType b) -> bool { return comparator(a.first, b.first) < 0; }) -
+            array_;
+  if (res == GetSize()) {
+    return -1;
+  }
+  if (comparator(array_[res].first, key) != 0) {
+    return -1;
+  }
+  return res;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -108,7 +128,7 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Insert(KeyType key, ValueType value, KeyCom
 }
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Remove(KeyType key, KeyComparator comparator) -> bool {
-  int index = KeyIndexSearch(key, comparator);
+  int index = KeyIndex(key, comparator);
   for (int i = index; i < GetSize() - 1; i++) {
     array_[i] = array_[i + 1];
   }
