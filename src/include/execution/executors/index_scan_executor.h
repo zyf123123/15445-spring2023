@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <memory>
 #include <vector>
 
 #include "common/rid.h"
@@ -44,5 +45,14 @@ class IndexScanExecutor : public AbstractExecutor {
  private:
   /** The index scan plan node to be executed. */
   const IndexScanPlanNode *plan_;
+
+  /** The index info */
+  IndexInfo *index_info_;
+
+  /** The B+ tree index */
+  BPlusTreeIndexForTwoIntegerColumn *tree_;
+
+  /** The iterator of the B+ tree index */
+  std::unique_ptr<BPlusTreeIndexIteratorForTwoIntegerColumn> iter_;
 };
 }  // namespace bustub

@@ -110,7 +110,7 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value, Transact
   // Declaration of context instance.
   Context ctx;
   ctx.root_page_id_ = GetRootPageId();
-  // std::cout << "insert key" << key;
+  // std::cout << "insert key" << key << std::endl;
   // LOG_INFO("insert key: header page id %d", header_page_id_);
   // if empty, start new tree
   latch_.lock();

@@ -66,5 +66,8 @@ class UpdateExecutor : public AbstractExecutor {
 
   /** The child executor to obtain value from */
   std::unique_ptr<AbstractExecutor> child_executor_;
+
+  /** The executor is access first time */
+  bool first_time_ = true;
 };
 }  // namespace bustub
