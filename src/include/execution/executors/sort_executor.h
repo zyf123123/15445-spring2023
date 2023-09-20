@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -52,5 +53,11 @@ class SortExecutor : public AbstractExecutor {
  private:
   /** The sort plan node to be executed */
   const SortPlanNode *plan_;
+  /** The child executor from which tuples are obtained */
+  std::unique_ptr<AbstractExecutor> child_executor_;
+  /** The tuples to be sorted */
+  std::vector<Tuple> tuples_;
+
+  uint index_ = 0;
 };
 }  // namespace bustub

@@ -83,7 +83,6 @@ auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     }
 
     if (right_tuple_num_ == right_tuples_.size()) {
-      std::cout << is_joined_ << values.size() << std::endl;
       if (!is_joined_ && plan_->GetJoinType() == JoinType::LEFT) {
         for (const auto &col : left_schema.GetColumns()) {
           auto value = left_tuple_.GetValue(&left_schema, left_schema.GetColIdx(col.GetName()));
@@ -92,7 +91,6 @@ auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
         for (const auto &col : right_schema.GetColumns()) {
           values.emplace_back(ValueFactory::GetNullValueByType(col.GetType()));
         }
-        std::cout << values.size() << std::endl;
       }
       right_tuple_num_ = 0;
       is_joined_ = false;
