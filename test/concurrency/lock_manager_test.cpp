@@ -2,15 +2,28 @@
  * lock_manager_test.cpp
  */
 
+#include "concurrency/lock_manager.h"
+
+#include <chrono>  // NOLINT
 #include <random>
 #include <thread>  // NOLINT
 
+#include "common/bustub_instance.h"
 #include "common/config.h"
-#include "common_checker.h"  // NOLINT
-#include "concurrency/lock_manager.h"
+#include "concurrency/transaction.h"
 #include "concurrency/transaction_manager.h"
-
+#include "fmt/core.h"
 #include "gtest/gtest.h"
+
+#define TEST_TIMEOUT_BEGIN                           \
+  std::promise<bool> promisedFinished;               \
+  auto futureResult = promisedFinished.get_future(); \
+                             std::thread([](std::promise<bool>& finished) {
+#define TEST_TIMEOUT_FAIL_END(X)                                                                  \
+  finished.set_value(true);                                                                       \
+  }, std::ref(promisedFinished)).detach();                                                         \
+  EXPECT_TRUE(futureResult.wait_for(std::chrono::milliseconds(X)) != std::future_status::timeout) \
+      << "Test Failed Due to Time Out";
 
 namespace bustub {
 
@@ -29,15 +42,8 @@ void CheckAborted(Transaction *txn) { EXPECT_EQ(txn->GetState(), TransactionStat
 void CheckCommitted(Transaction *txn) { EXPECT_EQ(txn->GetState(), TransactionState::COMMITTED); }
 
 void CheckTxnRowLockSize(Transaction *txn, table_oid_t oid, size_t shared_size, size_t exclusive_size) {
-  bool correct = true;
-  correct = correct && (*txn->GetSharedRowLockSet())[oid].size() == shared_size;
-  correct = correct && (*txn->GetExclusiveRowLockSet())[oid].size() == exclusive_size;
-  if (!correct) {
-    fmt::print("row lock size incorrect for txn={} oid={}: expected (S={} X={}), actual (S={} X={})\n",
-               txn->GetTransactionId(), oid, shared_size, exclusive_size, (*txn->GetSharedRowLockSet())[oid].size(),
-               (*txn->GetExclusiveRowLockSet())[oid].size());
-  }
-  EXPECT_TRUE(correct);
+  EXPECT_EQ((*(txn->GetSharedRowLockSet()))[oid].size(), shared_size);
+  EXPECT_EQ((*(txn->GetExclusiveRowLockSet()))[oid].size(), exclusive_size);
 }
 
 int GetTxnTableLockSize(Transaction *txn, LockManager::LockMode lock_mode) {
@@ -59,22 +65,11 @@ int GetTxnTableLockSize(Transaction *txn, LockManager::LockMode lock_mode) {
 
 void CheckTableLockSizes(Transaction *txn, size_t s_size, size_t x_size, size_t is_size, size_t ix_size,
                          size_t six_size) {
-  bool correct = true;
-  correct = correct && s_size == txn->GetSharedTableLockSet()->size();
-  correct = correct && x_size == txn->GetExclusiveTableLockSet()->size();
-  correct = correct && is_size == txn->GetIntentionSharedTableLockSet()->size();
-  correct = correct && ix_size == txn->GetIntentionExclusiveTableLockSet()->size();
-  correct = correct && six_size == txn->GetSharedIntentionExclusiveTableLockSet()->size();
-  if (!correct) {
-    fmt::print(
-        "table lock size incorrect for txn={}: expected (S={} X={}, IS={}, IX={}, SIX={}), actual (S={} X={}, IS={}, "
-        "IX={}, "
-        "SIX={})\n",
-        txn->GetTransactionId(), s_size, x_size, is_size, ix_size, six_size, txn->GetSharedTableLockSet()->size(),
-        txn->GetExclusiveTableLockSet()->size(), txn->GetIntentionSharedTableLockSet()->size(),
-        txn->GetIntentionExclusiveTableLockSet()->size(), txn->GetSharedIntentionExclusiveTableLockSet()->size());
-  }
-  EXPECT_TRUE(correct);
+  EXPECT_EQ(s_size, txn->GetSharedTableLockSet()->size());
+  EXPECT_EQ(x_size, txn->GetExclusiveTableLockSet()->size());
+  EXPECT_EQ(is_size, txn->GetIntentionSharedTableLockSet()->size());
+  EXPECT_EQ(ix_size, txn->GetIntentionExclusiveTableLockSet()->size());
+  EXPECT_EQ(six_size, txn->GetSharedIntentionExclusiveTableLockSet()->size());
 }
 
 void TableLockTest1() {
@@ -93,7 +88,7 @@ void TableLockTest1() {
     EXPECT_EQ(i, txns[i]->GetTransactionId());
   }
 
-  /** Each transaction takes an X lock on every table and then unlocks */
+  /** Each transaction takes an S lock on every table and then unlocks */
   auto task = [&](int txn_id) {
     bool res;
     for (const table_oid_t &oid : oids) {
@@ -128,7 +123,8 @@ void TableLockTest1() {
     delete txns[i];
   }
 }
-TEST(LockManagerTest, DISABLED_TableLockTest1) { TableLockTest1(); }  // NOLINT
+
+TEST(LockManagerTest, TableLockTest1) { TableLockTest1(); }  // NOLINT
 
 /** Upgrading single transaction from S -> X */
 void TableLockUpgradeTest1() {
@@ -153,7 +149,7 @@ void TableLockUpgradeTest1() {
 
   delete txn1;
 }
-TEST(LockManagerTest, DISABLED_TableLockUpgradeTest1) { TableLockUpgradeTest1(); }  // NOLINT
+TEST(LockManagerTest, TableLockUpgradeTest1) { TableLockUpgradeTest1(); }  // NOLINT
 
 void RowLockTest1() {
   LockManager lock_mgr{};
@@ -162,7 +158,7 @@ void RowLockTest1() {
   table_oid_t oid = 0;
   RID rid{0, 0};
 
-  int num_txns = 3;
+  int num_txns = 4;
   std::vector<Transaction *> txns;
   for (int i = 0; i < num_txns; i++) {
     txns.push_back(txn_mgr.Begin());
@@ -209,7 +205,8 @@ void RowLockTest1() {
     delete txns[i];
   }
 }
-TEST(LockManagerTest, DISABLED_RowLockTest1) { RowLockTest1(); }  // NOLINT
+
+TEST(LockManagerTest, RowLockTest1) { RowLockTest1(); }  // NOLINT
 
 void TwoPLTest1() {
   LockManager lock_mgr{};
@@ -258,68 +255,357 @@ void TwoPLTest1() {
   delete txn;
 }
 
-TEST(LockManagerTest, DISABLED_TwoPLTest1) { TwoPLTest1(); }  // NOLINT
+TEST(LockManagerTest, TwoPLTest1) { TwoPLTest1(); }  // NOLINT
 
-void AbortTest1() {
-  fmt::print(stderr, "AbortTest1: multiple X should block\n");
-
+TEST(LockManagerTest, CompatibilityTest) {
   LockManager lock_mgr{};
   TransactionManager txn_mgr{&lock_mgr};
 
+  std::vector<table_oid_t> oids;
+  std::vector<Transaction *> txns;
+
+  /** 10 tables */
+  int num_oids = 10;
+  for (int i = 0; i < num_oids; i++) {
+    table_oid_t oid{static_cast<uint32_t>(i)};
+    oids.push_back(oid);
+    txns.push_back(txn_mgr.Begin());
+    EXPECT_EQ(i, txns[i]->GetTransactionId());
+  }
+
+  auto task_exclusive = [&](int txn_id) {
+    bool res;
+    for (const table_oid_t &oid : oids) {
+      res = lock_mgr.LockTable(txns[txn_id], LockManager::LockMode::EXCLUSIVE, oid);
+      EXPECT_TRUE(res);
+      CheckGrowing(txns[txn_id]);
+    }
+    for (const table_oid_t &oid : oids) {
+      res = lock_mgr.UnlockTable(txns[txn_id], oid);
+      EXPECT_TRUE(res);
+      CheckShrinking(txns[txn_id]);
+    }
+    txn_mgr.Commit(txns[txn_id]);
+    CheckCommitted(txns[txn_id]);
+
+    /** All locks should be dropped */
+    CheckTableLockSizes(txns[txn_id], 0, 0, 0, 0, 0);
+  };
+
+  /** Each transaction takes an S lock on every table and then unlocks */
+  auto task_shared = [&](int txn_id) {
+    bool res;
+    for (const table_oid_t &oid : oids) {
+      res = lock_mgr.LockTable(txns[txn_id], LockManager::LockMode::SHARED, oid);
+      EXPECT_TRUE(res);
+      CheckGrowing(txns[txn_id]);
+    }
+    for (const table_oid_t &oid : oids) {
+      res = lock_mgr.UnlockTable(txns[txn_id], oid);
+      EXPECT_TRUE(res);
+      CheckShrinking(txns[txn_id]);
+    }
+    txn_mgr.Commit(txns[txn_id]);
+    CheckCommitted(txns[txn_id]);
+
+    /** All locks should be dropped */
+    CheckTableLockSizes(txns[txn_id], 0, 0, 0, 0, 0);
+  };
+
+  std::vector<std::thread> threads;
+  threads.reserve(num_oids);
+
+  for (int i = 0; i < num_oids; i++) {
+    if (i % 3 == 0) {
+      threads.emplace_back(std::thread{task_exclusive, i});
+    } else {
+      threads.emplace_back(std::thread{task_shared, i});
+    }
+  }
+
+  for (int i = 0; i < num_oids; i++) {
+    threads[i].join();
+  }
+
+  for (int i = 0; i < num_oids; i++) {
+    delete txns[i];
+  }
+}
+
+void AbortTest1() {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
   table_oid_t oid = 0;
-  RID rid{0, 0};
 
-  auto txn1 = txn_mgr.Begin();
-  auto txn2 = txn_mgr.Begin();
-  auto txn3 = txn_mgr.Begin();
+  auto *txn0 = txn_mgr.Begin();
+  auto *txn1 = txn_mgr.Begin();
+  auto *txn2 = txn_mgr.Begin();
 
-  /** All takes IX lock on table */
-  EXPECT_EQ(true, lock_mgr.LockTable(txn1, LockManager::LockMode::INTENTION_EXCLUSIVE, oid));
-  CheckTableLockSizes(txn1, 0, 0, 0, 1, 0);
-  EXPECT_EQ(true, lock_mgr.LockTable(txn2, LockManager::LockMode::INTENTION_EXCLUSIVE, oid));
-  CheckTableLockSizes(txn2, 0, 0, 0, 1, 0);
-  EXPECT_EQ(true, lock_mgr.LockTable(txn3, LockManager::LockMode::INTENTION_EXCLUSIVE, oid));
-  CheckTableLockSizes(txn3, 0, 0, 0, 1, 0);
+  std::thread t1([&]() {
+    bool res;
+    res = lock_mgr.LockTable(txn0, LockManager::LockMode::EXCLUSIVE, oid);
+    EXPECT_TRUE(res);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    lock_mgr.UnlockTable(txn0, oid);
+    txn_mgr.Commit(txn0);
+    EXPECT_EQ(TransactionState::COMMITTED, txn0->GetState());
+  });
 
-  /** txn1 takes X lock on row */
-  EXPECT_EQ(true, lock_mgr.LockRow(txn1, LockManager::LockMode::EXCLUSIVE, oid, rid));
-  CheckTxnRowLockSize(txn1, oid, 0, 1);
+  std::thread t2([&]() {
+    bool res;
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    res = lock_mgr.LockTable(txn1, LockManager::LockMode::EXCLUSIVE, oid);
+    EXPECT_FALSE(res);
 
-  /** txn2 attempts X lock on row but should be blocked */
-  auto txn2_task = std::thread{[&]() { lock_mgr.LockRow(txn2, LockManager::LockMode::EXCLUSIVE, oid, rid); }};
+    EXPECT_EQ(TransactionState::ABORTED, txn1->GetState());
+    txn_mgr.Abort(txn1);
+  });
 
-  /** Sleep for a bit */
+  std::thread t3([&]() {
+    bool res;
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    res = lock_mgr.LockTable(txn2, LockManager::LockMode::EXCLUSIVE, oid);
+    EXPECT_TRUE(res);
+    lock_mgr.UnlockTable(txn2, oid);
+    txn_mgr.Commit(txn2);
+    EXPECT_EQ(TransactionState::COMMITTED, txn2->GetState());
+  });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(70));
+  txn1->SetState(TransactionState::ABORTED);
+
+  t1.join();
+  t2.join();
+  t3.join();
+  delete txn0;
+  delete txn1;
+  delete txn2;
+}
+
+TEST(LockManagerTest, AbortTest1) {
+  for (int i = 0; i < 10; i++) {
+    AbortTest1();
+  }
+}
+
+
+void UpgradeTest(){
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+  table_oid_t oid = 0;
+
+  auto *txn0 = txn_mgr.Begin();
+  auto *txn1 = txn_mgr.Begin();
+  auto *txn2 = txn_mgr.Begin();
+  /*
+   lock_mgr.LockTable(txn0, LockManager::LockMode::SHARED, oid);
+   lock_mgr.LockTable(txn0, LockManager::LockMode::EXCLUSIVE, oid);
+   lock_mgr.UnlockTable(txn0, oid);
+   txn_mgr.Commit(txn0);*/
+  txn_mgr.Begin(txn0);
+  CheckTableLockSizes(txn0, 0, 0, 0, 0, 0);
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  /** txn2 shouldn't have been granted the lock */
-  CheckTxnRowLockSize(txn2, oid, 0, 0);
 
-  /** txn3 attempts X lock on row but should be blocked */
-  auto txn3_task = std::thread{[&]() { lock_mgr.LockRow(txn3, LockManager::LockMode::EXCLUSIVE, oid, rid); }};
-  /** Sleep for a bit */
+  std::thread t0([&]() {
+    bool res;
+    res = lock_mgr.LockTable(txn0, LockManager::LockMode::INTENTION_SHARED, oid);
+    EXPECT_TRUE(res);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    res = lock_mgr.LockTable(txn0, LockManager::LockMode::EXCLUSIVE, oid);
+    EXPECT_TRUE(res);
+    lock_mgr.UnlockTable(txn0, oid);
+    txn_mgr.Commit(txn0);
+  });
+
+  std::thread t1([&]() {
+    bool res;
+    res = lock_mgr.LockTable(txn1, LockManager::LockMode::INTENTION_SHARED, oid);
+    EXPECT_TRUE(res);
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+
+    res = lock_mgr.UnlockTable(txn1, oid);
+    EXPECT_TRUE(res);
+    CheckTableLockSizes(txn0, 0, 0, 0, 0, 0);
+    CheckTableLockSizes(txn1, 0, 0, 0, 0, 0);
+    txn_mgr.Commit(txn1);
+  });
+
+  std::thread t2([&]() {
+    bool res;
+    res = lock_mgr.LockTable(txn2, LockManager::LockMode::EXCLUSIVE, oid);
+    EXPECT_TRUE(res);
+    std::this_thread::sleep_for(std::chrono::milliseconds(70));
+
+    res = lock_mgr.UnlockTable(txn2, oid);
+    EXPECT_TRUE(res);
+    txn_mgr.Commit(txn2);
+  });
+
+  t0.join();
+  t1.join();
+  t2.join();
+  delete txn0;
+  delete txn1;
+  delete txn2;
+}
+TEST(LockManagerTest, UpgradeTest) {
+        for (int i = 0; i < 10; i++) {
+        UpgradeTest();
+        }
+}
+
+TEST(LockManagerTest, UpgradeTest1) {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+  table_oid_t oid = 0;
+
+  auto *txn0 = txn_mgr.Begin();
+  auto *txn1 = txn_mgr.Begin();
+  auto *txn2 = txn_mgr.Begin();
+
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  /** txn3 shouldn't have been granted the lock */
-  CheckTxnRowLockSize(txn3, oid, 0, 0);
 
-  /** Abort txn2 */
-  txn_mgr.Abort(txn2);
+  std::thread t0([&]() {
+    bool res;
+    res = lock_mgr.LockTable(txn0, LockManager::LockMode::SHARED, oid);
+    EXPECT_TRUE(res);
+    res = lock_mgr.LockTable(txn0, LockManager::LockMode::SHARED_INTENTION_EXCLUSIVE, oid);
+    EXPECT_TRUE(res);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    lock_mgr.UnlockTable(txn0, oid);
+    txn_mgr.Commit(txn0);
+  });
 
-  /** txn1 releases lock */
-  EXPECT_EQ(true, lock_mgr.UnlockRow(txn1, oid, rid));
-  CheckTxnRowLockSize(txn1, oid, 0, 0);
+  std::thread t1([&]() {
+    bool res;
+    std::this_thread::sleep_for(std::chrono::milliseconds(60));
+    res = lock_mgr.LockTable(txn1, LockManager::LockMode::SHARED, oid);
+    EXPECT_TRUE(res);
 
-  txn2_task.join();
-  txn3_task.join();
-  /** txn2 shouldn't have any row locks */
-  CheckTxnRowLockSize(txn2, oid, 0, 0);
-  CheckTableLockSizes(txn2, 0, 0, 0, 0, 0);
-  /** txn3 should have the row lock */
-  CheckTxnRowLockSize(txn3, oid, 0, 1);
+    res = lock_mgr.UnlockTable(txn1, oid);
+    EXPECT_TRUE(res);
+    CheckTableLockSizes(txn0, 0, 0, 0, 0, 0);
+    CheckTableLockSizes(txn1, 0, 0, 0, 0, 0);
+    txn_mgr.Commit(txn1);
+  });
+
+  std::thread t2([&]() {
+    bool res;
+    res = lock_mgr.LockTable(txn2, LockManager::LockMode::SHARED, oid);
+    EXPECT_TRUE(res);
+    std::this_thread::sleep_for(std::chrono::milliseconds(70));
+
+    res = lock_mgr.UnlockTable(txn2, oid);
+    EXPECT_TRUE(res);
+    txn_mgr.Commit(txn2);
+  });
+
+  t0.join();
+  t1.join();
+  t2.join();
+  delete txn0;
+  delete txn1;
+  delete txn2;
+}
+
+TEST(LockManagerTest, LockCompatibilityTest1) {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+  table_oid_t oid = 0;
+
+  auto *txn0 = txn_mgr.Begin();
+  auto *txn1 = txn_mgr.Begin();
+  auto *txn2 = txn_mgr.Begin();
+
+  lock_mgr.LockTable(txn0, LockManager::LockMode::INTENTION_SHARED, oid);
+  std::thread t1([&]() {
+    lock_mgr.LockTable(txn1, LockManager::LockMode::INTENTION_SHARED, oid);
+    lock_mgr.LockTable(txn0, LockManager::LockMode::EXCLUSIVE, oid);
+  });
+  std::thread t2([&]() {
+    lock_mgr.LockTable(txn2, LockManager::LockMode::EXCLUSIVE, oid);
+  });
+  std::this_thread::sleep_for(std::chrono::milliseconds(70));
+
+
+  lock_mgr.UnlockTable(txn1, oid);
+  lock_mgr.UnlockTable(txn0, oid);
+  lock_mgr.UnlockTable(txn2, oid);
+
+  t1.join();
+  t2.join();
+  delete txn0;
+  delete txn1;
+}
+
+TEST(LockManagerTest, TableLockUpgradeTest3) {
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+  table_oid_t oid = 0;
+
+  auto *txn0 = txn_mgr.Begin();
+  auto *txn1 = txn_mgr.Begin();
+  auto *txn2 = txn_mgr.Begin();
+
+
+  lock_mgr.LockTable(txn0, LockManager::LockMode::EXCLUSIVE, oid);
+  lock_mgr.LockTable(txn0, LockManager::LockMode::SHARED, oid);
+
+  lock_mgr.UnlockTable(txn0, oid);
+  delete txn0;
+  delete txn1;
+  delete txn2;
+}
+
+TEST(LockManagerTest, MixedTest) {
+  TEST_TIMEOUT_BEGIN
+  const int num = 10;
+  LockManager lock_mgr{};
+  TransactionManager txn_mgr{&lock_mgr};
+  std::stringstream result;
+  auto bustub = std::make_unique<bustub::BustubInstance>();
+  auto writer = bustub::SimpleStreamWriter(result, true, " ");
+
+  bustub->ExecuteSql("\\dt", writer);
+  auto schema = "CREATE TABLE test_1 (x int, y int);";
+  bustub->ExecuteSql(schema, writer);
+  std::string query = "INSERT INTO test_1 VALUES ";
+  for (size_t i = 0; i < num; i++) {
+    query += fmt::format("({}, {})", i, 0);
+    if (i != num - 1) {
+      query += ", ";
+    } else {
+      query += ";";
+    }
+  }
+  bustub->ExecuteSql(query, writer);
+  schema = "CREATE TABLE test_2 (x int, y int);";
+  bustub->ExecuteSql(schema, writer);
+  bustub->ExecuteSql(query, writer);
+
+  auto txn1 = bustub->txn_manager_->Begin();
+  auto txn2 = bustub->txn_manager_->Begin();
+
+  fmt::print("------\n");
+
+  query = "delete from test_1 where x = 100;";
+  bustub->ExecuteSqlTxn(query, writer, txn2);
+
+  query = "select * from test_1;";
+  bustub->ExecuteSqlTxn(query, writer, txn2);
+
+  query = "select * from test_1;";
+  bustub->ExecuteSqlTxn(query, writer, txn1);
+
+  bustub->txn_manager_->Commit(txn1);
+  fmt::print("txn1 commit\n");
+
+  bustub->txn_manager_->Commit(txn2);
+  fmt::print("txn2 commit\n");
 
   delete txn1;
   delete txn2;
-  delete txn3;
+  TEST_TIMEOUT_FAIL_END(10000)
 }
-
-TEST(LockManagerTest, DISABLED_RowAbortTest1) { AbortTest1(); }  // NOLINT
 
 }  // namespace bustub

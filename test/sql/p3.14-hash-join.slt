@@ -9,8 +9,8 @@ select * from
     on office_hour = day_of_week
     where has_lecture = 1;
 ----
-David-Lyons Monday Monday 1 
-yarkhinephyo Wednesday Wednesday 1 
+David-Lyons Monday Monday 1
+yarkhinephyo Wednesday Wednesday 1
 
 # The real test begins...
 
@@ -523,6 +523,8 @@ select * from temp_1 t1 inner join temp_2 t2 on t1.colC = t2.colB and t1.colB = 
 10 8 398 60977 18 398 8
 19 3 701 34675 33 701 3
 
+statement ok
+EXPLAIN (o) SELECT * FROM test_1 t1, test_2 t2 WHERE t1.colA = t2.colA AND t1.colB = t2.colC;
 
 # Switch left and right table column expressions
 query rowsort +ensure:hash_join

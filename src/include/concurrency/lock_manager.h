@@ -72,6 +72,8 @@ class LockManager {
     txn_id_t upgrading_ = INVALID_TXN_ID;
     /** coordination */
     std::mutex latch_;
+    /** queue latch */
+    std::mutex queue_latch_;
   };
 
   /**
@@ -323,8 +325,22 @@ class LockManager {
   auto UpgradeLockRow(Transaction *txn, LockMode lock_mode, const table_oid_t &oid, const RID &rid) -> bool;
   auto AreLocksCompatible(LockMode l1, LockMode l2) -> bool;
   auto CanTxnTakeLock(Transaction *txn, LockMode lock_mode) -> bool;
+
+  auto GrantLock(Transaction *txn, LockMode lock_mode, const table_oid_t &oid,
+                 const std::shared_ptr<LockRequest> &lock_request,
+                 const std::shared_ptr<LockRequestQueue> &lock_request_queue) -> bool;
+  auto GrantRowLock(Transaction *txn, LockMode lock_mode, const table_oid_t &oid, const RID &rid,
+                    const std::shared_ptr<LockRequest> &lock_request,
+                    const std::shared_ptr<LockRequestQueue> &lock_request_queue) -> bool;
+
+  auto ReleaseLock(Transaction *txn, LockMode lock_mode, const table_oid_t &oid,
+                   const std::shared_ptr<LockRequest> &lock_request) -> bool;
+  auto ReleaseRowLock(Transaction *txn, LockMode lock_mode, const table_oid_t &oid, const RID &rid,
+                      const std::shared_ptr<LockRequest> &lock_request) -> bool;
+
   void GrantNewLocksIfPossible(LockRequestQueue *lock_request_queue);
-  auto CanLockUpgrade(LockMode curr_lock_mode, LockMode requested_lock_mode) -> bool;
+  auto CanLockUpgrade(Transaction *txn, const std::shared_ptr<LockRequestQueue> &lock_request_queue,
+                      LockMode curr_lock_mode, LockMode requested_lock_mode) -> bool;
   auto CheckAppropriateLockOnTable(Transaction *txn, const table_oid_t &oid, LockMode row_lock_mode) -> bool;
   auto FindCycle(txn_id_t source_txn, std::vector<txn_id_t> &path, std::unordered_set<txn_id_t> &on_path,
                  std::unordered_set<txn_id_t> &visited, txn_id_t *abort_txn_id) -> bool;
