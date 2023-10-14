@@ -345,6 +345,11 @@ class LockManager {
   auto FindCycle(txn_id_t source_txn, std::vector<txn_id_t> &path, std::unordered_set<txn_id_t> &on_path,
                  std::unordered_set<txn_id_t> &visited, txn_id_t *abort_txn_id) -> bool;
   void UnlockAll();
+  auto Dfs(txn_id_t start_txn, txn_id_t *youngest_txn) -> bool;
+
+  void RemoveRelatedEdges(txn_id_t txn_id);
+
+  void CreateWaitsForGraph();
 
   /** Structure that holds lock requests for a given table oid */
   std::unordered_map<table_oid_t, std::shared_ptr<LockRequestQueue>> table_lock_map_;
@@ -360,6 +365,7 @@ class LockManager {
   std::thread *cycle_detection_thread_;
   /** Waits-for graph representation. */
   std::unordered_map<txn_id_t, std::vector<txn_id_t>> waits_for_;
+  std::unordered_map<txn_id_t, bool> visited_;
   std::mutex waits_for_latch_;
 };
 
