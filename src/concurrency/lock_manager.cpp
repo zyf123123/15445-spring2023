@@ -36,7 +36,7 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
   lock_request_queue->queue_latch_.lock();
   table_lock_map_latch_.unlock();
 
-  LOG_INFO("txn %d lock table %d mode %d", txn->GetTransactionId(), oid, lock_mode);
+  // LOG_INFO("txn %d lock table %d mode %d", txn->GetTransactionId(), oid, lock_mode);
   // check txn in the queue
   std::shared_ptr<LockRequest> lock_request;
   for (const auto &lr : lock_request_queue->request_queue_) {
@@ -82,14 +82,13 @@ auto LockManager::LockTable(Transaction *txn, LockMode lock_mode, const table_oi
   std::unique_lock<std::mutex> lock(lock_request_queue->latch_);
   lock_request_queue->queue_latch_.lock();
   while (!GrantLock(txn, lock_mode, oid, lock_request, lock_request_queue)) {
-    LOG_INFO("lock queue size %zu", lock_request_queue->request_queue_.size());
-    LOG_INFO("txn %d wait lock table %d mode %d", txn->GetTransactionId(), oid, lock_mode);
+    // LOG_INFO("lock queue size %zu", lock_request_queue->request_queue_.size());
+    // LOG_INFO("txn %d wait lock table %d mode %d", txn->GetTransactionId(), oid, lock_mode);
     lock_request_queue->queue_latch_.unlock();
     lock_request_queue->cv_.wait(lock);
     // if txn is abort
     if (txn->GetState() == TransactionState::ABORTED) {
       // LOG_INFO("txn %d abort", txn->GetTransactionId());
-      RemoveRelatedEdges(txn->GetTransactionId());
       lock_request_queue->queue_latch_.lock();
       lock_request_queue->request_queue_.remove(lock_request);
       if (lock_request_queue->upgrading_ == txn->GetTransactionId()) {
@@ -149,7 +148,7 @@ auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool 
   lock_request_queue = table_lock_map_[oid];
   lock_request_queue->queue_latch_.lock();
   table_lock_map_latch_.unlock();
-  LOG_INFO("txn %d unlock table %d", txn->GetTransactionId(), oid);
+  // LOG_INFO("txn %d unlock table %d", txn->GetTransactionId(), oid);
   // check txn in the queue
   std::shared_ptr<LockRequest> lock_request;
   for (const auto &lr : lock_request_queue->request_queue_) {
@@ -162,7 +161,6 @@ auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool 
   lock_request_queue->request_queue_.remove(lock_request);
   // notify other txns
   lock_request_queue->cv_.notify_all();
-  lock_request_queue->queue_latch_.unlock();
 
   // change txn state
   if (txn->GetIsolationLevel() == IsolationLevel::REPEATABLE_READ) {
@@ -176,6 +174,7 @@ auto LockManager::UnlockTable(Transaction *txn, const table_oid_t &oid) -> bool 
     }
   }
   ReleaseLock(txn, lock_request->lock_mode_, oid, lock_request);
+  lock_request_queue->queue_latch_.unlock();
 
   return true;
 }
@@ -204,7 +203,7 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
   }
   lock_request_queue->queue_latch_.lock();
   row_lock_map_latch_.unlock();
-  LOG_INFO("txn %d lock row %d table %d mode %d", txn->GetTransactionId(), rid.GetSlotNum(), oid, lock_mode);
+  // LOG_INFO("txn %d lock row %d table %d mode %d", txn->GetTransactionId(), rid.GetSlotNum(), oid, lock_mode);
   // check txn in the queue
   std::shared_ptr<LockRequest> lock_request;
   for (const auto &lr : lock_request_queue->request_queue_) {
@@ -213,8 +212,11 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
       break;
     }
   }
-  if (lock_request != nullptr && lock_request->granted_) {
+  if (lock_request != nullptr) {
     // check if need lock upgrade
+    if (!lock_request->granted_) {
+      throw TransactionAbortException(txn->GetTransactionId(), AbortReason::INCOMPATIBLE_UPGRADE);
+    }
     try {
       CanLockUpgrade(txn, lock_request_queue, lock_request->lock_mode_, lock_mode);
     } catch (TransactionAbortException &e) {
@@ -222,11 +224,12 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
       throw e;
     }
     lock_request_queue->upgrading_ = txn->GetTransactionId();
-    ReleaseRowLock(txn, lock_request->lock_mode_, oid, rid, lock_request);
+    ReleaseRowLock(txn, lock_request->lock_mode_, oid, lock_request->rid_, lock_request);
     // remove from request queue
     lock_request_queue->request_queue_.remove(lock_request);
     // lock_request_queue->cv_.notify_all();
     lock_request = std::make_shared<LockRequest>(txn->GetTransactionId(), lock_mode, oid);
+    lock_request->rid_ = rid;
     // join into request queue
     auto lr = lock_request_queue->request_queue_.begin();
     for (; lr != lock_request_queue->request_queue_.end(); ++lr) {
@@ -240,6 +243,7 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
     }
   } else {
     lock_request = std::make_shared<LockRequest>(txn->GetTransactionId(), lock_mode, oid);
+    lock_request->rid_ = rid;
     // join into request queue
     lock_request_queue->request_queue_.emplace_back(lock_request);
   }
@@ -248,13 +252,13 @@ auto LockManager::LockRow(Transaction *txn, LockMode lock_mode, const table_oid_
   std::unique_lock<std::mutex> lock(lock_request_queue->latch_);
   lock_request_queue->queue_latch_.lock();
   while (!GrantRowLock(txn, lock_mode, oid, rid, lock_request, lock_request_queue)) {
-    LOG_INFO("lock queue size %zu", lock_request_queue->request_queue_.size());
-    LOG_INFO("txn %d wait lock row %d table %d mode %d", txn->GetTransactionId(), rid.GetSlotNum(), oid, lock_mode);
+    // LOG_INFO("lock queue size %zu", lock_request_queue->request_queue_.size());
+    // LOG_INFO("txn %d wait lock row %d table %d mode %d", txn->GetTransactionId(), rid.GetSlotNum(), oid, lock_mode);
     lock_request_queue->queue_latch_.unlock();
     lock_request_queue->cv_.wait(lock);
     // if txn is abort
     if (txn->GetState() == TransactionState::ABORTED) {
-      RemoveRelatedEdges(txn->GetTransactionId());
+      // RemoveRelatedEdges(txn->GetTransactionId());
       lock_request_queue->queue_latch_.lock();
       lock_request_queue->request_queue_.remove(lock_request);
       if (lock_request_queue->upgrading_ == txn->GetTransactionId()) {
@@ -286,7 +290,7 @@ auto LockManager::UnlockRow(Transaction *txn, const table_oid_t &oid, const RID 
   lock_request_queue = row_lock_map_[rid];
   lock_request_queue->queue_latch_.lock();
   row_lock_map_latch_.unlock();
-  LOG_INFO("txn %d unlock row %d table %d", txn->GetTransactionId(), rid.GetSlotNum(), oid);
+  // LOG_INFO("txn %d unlock row %d table %d", txn->GetTransactionId(), rid.GetSlotNum(), oid);
   // check txn in the queue
   std::shared_ptr<LockRequest> lock_request;
   for (const auto &lr : lock_request_queue->request_queue_) {
@@ -294,6 +298,11 @@ auto LockManager::UnlockRow(Transaction *txn, const table_oid_t &oid, const RID 
       lock_request = lr;
       break;
     }
+  }
+  if (lock_request == nullptr) {
+    LOG_INFO("txn %d unlock row %d table %d but txn dont got row lock", txn->GetTransactionId(), rid.GetSlotNum(), oid);
+    txn->SetState(TransactionState::ABORTED);
+    throw TransactionAbortException(txn->GetTransactionId(), AbortReason::ATTEMPTED_UNLOCK_BUT_NO_LOCK_HELD);
   }
   // remove from request queue
   lock_request_queue->request_queue_.remove(lock_request);
@@ -354,9 +363,9 @@ void LockManager::RemoveEdge(txn_id_t t1, txn_id_t t2) {
 }
 
 void LockManager::RemoveRelatedEdges(txn_id_t txn_id) {
-  LOG_INFO("remove edges for txn %d", txn_id);
+  // LOG_INFO("remove edges for txn %d", txn_id);
   waits_for_latch_.lock();
-  if (waits_for_.find(txn_id) != waits_for_.end()) {
+  if (!waits_for_.empty() && waits_for_.find(txn_id) != waits_for_.end()) {
     waits_for_.erase(txn_id);
   }
   /*
@@ -409,9 +418,9 @@ auto LockManager::HasCycle(txn_id_t *txn_id) -> bool {
   std::vector<txn_id_t> wait_for;
   wait_for.reserve(waits_for_.size());
   for (const auto &edge : waits_for_) {
-    for (const auto &t : edge.second) {
-      LOG_INFO("txn %d wait for %d", edge.first, t);
-    }
+    // for (const auto &t : edge.second) {
+    // LOG_INFO("txn %d wait for %d", edge.first, t);
+    // }
     wait_for.emplace_back(edge.first);
   }
   std::sort(wait_for.begin(), wait_for.end());
@@ -477,18 +486,46 @@ void LockManager::CreateWaitsForGraph() {
   table_lock_map_latch_.unlock();
 }
 
+void LockManager::NotifyAll(txn_id_t txn_id) {
+  table_lock_map_latch_.lock();
+  for (const auto &lrq : table_lock_map_) {
+    lrq.second->queue_latch_.lock();
+    for (const auto &lr : lrq.second->request_queue_) {
+      if (lr->txn_id_ == txn_id) {
+        lrq.second->cv_.notify_all();
+        break;
+      }
+    }
+    lrq.second->queue_latch_.unlock();
+  }
+  for (const auto &lrq : row_lock_map_) {
+    lrq.second->queue_latch_.lock();
+    for (const auto &lr : lrq.second->request_queue_) {
+      if (lr->txn_id_ == txn_id) {
+        lrq.second->cv_.notify_all();
+        break;
+      }
+    }
+    lrq.second->queue_latch_.unlock();
+  }
+  table_lock_map_latch_.unlock();
+}
+
 void LockManager::RunCycleDetection() {
   while (enable_cycle_detection_) {
     std::this_thread::sleep_for(cycle_detection_interval);
     {  // TODO(students): detect deadlock
-      LOG_INFO("detect deadlock");
+      // LOG_INFO("detect deadlock");
       CreateWaitsForGraph();
       for (const auto &edge : waits_for_) {
         txn_id_t txn_id = edge.first;
         if (HasCycle(&txn_id)) {
-          LOG_INFO("txn %d abort", txn_id);
+          // LOG_INFO("txn %d abort", txn_id);
           auto txn = txn_manager_->GetTransaction(txn_id);
-          txn_manager_->Abort(txn);
+          txn->SetState(TransactionState::ABORTED);
+          RemoveRelatedEdges(txn_id);
+          NotifyAll(txn_id);
+          // txn_manager_->Abort(txn);
           break;
         }
       }
@@ -632,7 +669,6 @@ auto LockManager::GrantLock(Transaction *txn, LockMode lock_mode, const table_oi
       break;
   }
   lock_request->granted_ = true;
-  lock_request_queue->upgrading_ = INVALID_TXN_ID;
   return true;
 }
 
@@ -685,7 +721,6 @@ auto LockManager::GrantRowLock(Transaction *txn, LockMode lock_mode, const table
       throw TransactionAbortException(txn->GetTransactionId(), AbortReason::ATTEMPTED_INTENTION_LOCK_ON_ROW);
   }
   lock_request->granted_ = true;
-  lock_request_queue->upgrading_ = INVALID_TXN_ID;
   return true;
 }
 

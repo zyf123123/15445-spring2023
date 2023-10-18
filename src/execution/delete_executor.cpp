@@ -44,6 +44,10 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     // before_tuple.second = Tuple{};
     tuple_meta_delete.is_deleted_ = true;
     table_info_->table_->UpdateTupleMeta(tuple_meta_delete, *rid);
+    auto table_write_record = TableWriteRecord(plan_->TableOid(), *rid, table_info_->table_.get());
+    table_write_record.wtype_ = WType::DELETE;
+
+    exec_ctx_->GetTransaction()->AppendTableWriteRecord(table_write_record);
 
     // update index
     auto table_name = exec_ctx_->GetCatalog()->GetTable(plan_->TableOid())->name_;
@@ -52,6 +56,8 @@ auto DeleteExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       const auto index_key = child_tuple.KeyFromTuple(exec_ctx_->GetCatalog()->GetTable(table_name)->schema_,
                                                       (index_info->key_schema_), index_info->index_->GetKeyAttrs());
       index_info->index_->DeleteEntry(index_key, RID(), exec_ctx_->GetTransaction());
+      exec_ctx_->GetTransaction()->AppendIndexWriteRecord(IndexWriteRecord(
+          *rid, plan_->TableOid(), WType::DELETE, child_tuple, index_info->index_oid_, exec_ctx_->GetCatalog()));
     }
     update_num++;
   }

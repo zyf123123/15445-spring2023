@@ -21,7 +21,7 @@
                              std::thread([](std::promise<bool>& finished) {
 #define TEST_TIMEOUT_FAIL_END(X)                                                                  \
   finished.set_value(true);                                                                       \
-  }, std::ref(promisedFinished)).detach();                                                         \
+  }, std::ref(promisedFinished)).detach();                                                        \
   EXPECT_TRUE(futureResult.wait_for(std::chrono::milliseconds(X)) != std::future_status::timeout) \
       << "Test Failed Due to Time Out";
 
@@ -388,8 +388,7 @@ TEST(LockManagerTest, AbortTest1) {
   }
 }
 
-
-void UpgradeTest(){
+void UpgradeTest() {
   LockManager lock_mgr{};
   TransactionManager txn_mgr{&lock_mgr};
   table_oid_t oid = 0;
@@ -449,9 +448,9 @@ void UpgradeTest(){
   delete txn2;
 }
 TEST(LockManagerTest, UpgradeTest) {
-        for (int i = 0; i < 10; i++) {
-        UpgradeTest();
-        }
+  for (int i = 0; i < 10; i++) {
+    UpgradeTest();
+  }
 }
 
 TEST(LockManagerTest, UpgradeTest1) {
@@ -522,11 +521,8 @@ TEST(LockManagerTest, LockCompatibilityTest1) {
     lock_mgr.LockTable(txn1, LockManager::LockMode::INTENTION_SHARED, oid);
     lock_mgr.LockTable(txn0, LockManager::LockMode::EXCLUSIVE, oid);
   });
-  std::thread t2([&]() {
-    lock_mgr.LockTable(txn2, LockManager::LockMode::EXCLUSIVE, oid);
-  });
+  std::thread t2([&]() { lock_mgr.LockTable(txn2, LockManager::LockMode::EXCLUSIVE, oid); });
   std::this_thread::sleep_for(std::chrono::milliseconds(70));
-
 
   lock_mgr.UnlockTable(txn1, oid);
   lock_mgr.UnlockTable(txn0, oid);
@@ -547,9 +543,8 @@ TEST(LockManagerTest, TableLockUpgradeTest3) {
   auto *txn1 = txn_mgr.Begin();
   auto *txn2 = txn_mgr.Begin();
 
-
-  lock_mgr.LockTable(txn0, LockManager::LockMode::EXCLUSIVE, oid);
   lock_mgr.LockTable(txn0, LockManager::LockMode::SHARED, oid);
+  lock_mgr.LockTable(txn0, LockManager::LockMode::EXCLUSIVE, oid);
 
   lock_mgr.UnlockTable(txn0, oid);
   delete txn0;

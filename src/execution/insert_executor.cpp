@@ -25,6 +25,14 @@ void InsertExecutor::Init() {
   child_executor_->Init();
   table_heap_ = exec_ctx_->GetCatalog()->GetTable(plan_->TableOid())->table_.get();
   first_time_ = true;
+  try {
+    if (!exec_ctx_->GetLockManager()->LockTable(exec_ctx_->GetTransaction(), LockManager::LockMode::INTENTION_EXCLUSIVE,
+                                                plan_->TableOid())) {
+      throw ExecutionException("Transaction abort");
+    }
+  } catch (TransactionAbortException &e) {
+    throw ExecutionException("Transaction abort");
+  }
 }
 
 auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
@@ -42,12 +50,23 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
     }
     auto tuple_meta = TupleMeta();
     tuple_meta.is_deleted_ = false;
-
+    tuple_meta.insert_txn_id_ = exec_ctx_->GetTransaction()->GetTransactionId();
     auto tuple_slot = table_heap_->InsertTuple(tuple_meta, child_tuple, exec_ctx_->GetLockManager(),
                                                exec_ctx_->GetTransaction(), plan_->TableOid());
     if (tuple_slot == std::nullopt) {
       return false;
     }
+    try {
+      if (!exec_ctx_->GetLockManager()->LockRow(exec_ctx_->GetTransaction(), LockManager::LockMode::EXCLUSIVE,
+                                                plan_->TableOid(), tuple_slot.value())) {
+        throw ExecutionException("Transaction abort");
+      }
+    } catch (TransactionAbortException &e) {
+      throw ExecutionException("Transaction abort");
+    }
+    auto table_write_record = TableWriteRecord(plan_->TableOid(), tuple_slot.value(), table_heap_);
+    table_write_record.wtype_ = WType::INSERT;
+    exec_ctx_->GetTransaction()->AppendTableWriteRecord(table_write_record);
 
     // update index
     auto table_name = exec_ctx_->GetCatalog()->GetTable(plan_->TableOid())->name_;
@@ -57,6 +76,8 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
                                                       (index_info->key_schema_), index_info->index_->GetKeyAttrs());
       // std :: cout << "index_key: " << index_key.ToString(&index_info->key_schema_) << std::endl;
       index_info->index_->InsertEntry(index_key, tuple_slot.value(), exec_ctx_->GetTransaction());
+      exec_ctx_->GetTransaction()->AppendIndexWriteRecord(IndexWriteRecord(
+          *rid, plan_->TableOid(), WType::INSERT, child_tuple, index_info->index_oid_, exec_ctx_->GetCatalog()));
     }
     insert_num++;
   }

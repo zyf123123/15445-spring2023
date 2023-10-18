@@ -198,6 +198,7 @@ auto BustubInstance::ExecuteSql(const std::string &sql, ResultWriter &writer,
     delete txn;
     return result;
   } catch (bustub::Exception &ex) {
+    LOG_INFO("Exception occurred: %s txn %d abort", ex.what(), txn->GetTransactionId());
     txn_manager_->Abort(txn);
     delete txn;
     throw ex;

@@ -347,6 +347,8 @@ class LockManager {
   void UnlockAll();
   auto Dfs(txn_id_t start_txn, txn_id_t *youngest_txn) -> bool;
 
+  void NotifyAll(txn_id_t txn_id);
+
   void RemoveRelatedEdges(txn_id_t txn_id);
 
   void CreateWaitsForGraph();

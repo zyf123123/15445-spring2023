@@ -285,6 +285,7 @@ auto main(int argc, char **argv) -> int {
                 bustub->txn_manager_->Commit(txn);
                 metrics.TxnCommitted();
               } else {
+                fmt::print("txn %d abort", txn->GetTransactionId());
                 bustub->txn_manager_->Abort(txn);
                 metrics.TxnAborted();
               }
