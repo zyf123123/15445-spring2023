@@ -101,6 +101,26 @@ class Optimizer {
    */
   auto EstimatedCardinality(const std::string &table_name) -> std::optional<size_t>;
 
+  /**
+   * @brief optimize scan as index scan if there's an index on a table
+   */
+  auto OptimizeScanAsIndexScan(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef;
+
+  /**
+   * @brief optimize constant folder
+   */
+  auto OptimizeConstantFolder(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef;
+
+  /**
+   * @brief optimize column pruning
+   */
+  auto OptimizeColumnPruning(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef;
+
+  /**
+   * @brief optimize filter push down
+   */
+  auto OptimizeFliterPushDown(const AbstractPlanNodeRef &plan) -> AbstractPlanNodeRef;
+
   /** Catalog will be used during the planning process. USERS SHOULD ENSURE IT OUTLIVES
    * OPTIMIZER, otherwise it's a dangling reference.
    */

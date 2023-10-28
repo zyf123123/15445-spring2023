@@ -43,36 +43,12 @@ void SeqScanExecutor::Init() {
 
 auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   if (table_iter_->IsEnd()) {
-    /*
-    if (!exec_ctx_->IsDelete() &&
-        this->exec_ctx_->GetTransaction()->GetIsolationLevel() == IsolationLevel::READ_COMMITTED &&
-        !this->exec_ctx_->GetTransaction()->GetSharedRowLockSet()->empty()) {
-      try {
-        if (this->exec_ctx_->GetTransaction()->IsTableIntentionSharedLocked(plan_->GetTableOid())) {
-          this->exec_ctx_->GetLockManager()->UnlockTable(this->exec_ctx_->GetTransaction(), plan_->GetTableOid());
-        }
-      } catch (TransactionAbortException &e) {
-        throw ExecutionException("Transaction abort");
-      }
-    }*/
     return false;
   }
 
   TupleMeta tuple_meta;
   do {
     if (table_iter_->IsEnd()) {
-      /*
-      if (!exec_ctx_->IsDelete() &&
-          this->exec_ctx_->GetTransaction()->GetIsolationLevel() == IsolationLevel::READ_COMMITTED &&
-          !this->exec_ctx_->GetTransaction()->GetSharedRowLockSet()->empty()) {
-        try {
-          if (this->exec_ctx_->GetTransaction()->IsTableIntentionSharedLocked(plan_->GetTableOid())) {
-            this->exec_ctx_->GetLockManager()->UnlockTable(this->exec_ctx_->GetTransaction(), plan_->GetTableOid());
-          }
-        } catch (TransactionAbortException &e) {
-          throw ExecutionException("Transaction abort");
-        }
-      }*/
       return false;
     }
     tuple_meta = table_iter_->GetTuple().first;
@@ -101,7 +77,10 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       tuple_meta = table_iter_->GetTuple().first;
       if (!tuple_meta.is_deleted_) {
         *tuple = table_iter_->GetTuple().second;
-        break;
+        if (this->plan_->filter_predicate_ == nullptr ||
+            this->plan_->filter_predicate_->Evaluate(tuple, this->plan_->OutputSchema()).GetAs<bool>()) {
+          break;
+        }
       }
 
       try {
@@ -124,7 +103,7 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       }
     }
     ++(*table_iter_);
-  } while (tuple_meta.is_deleted_);
+  } while (true);
   /*
   if (tuple_meta.delete_txn_id_ != this->exec_ctx_->GetTransaction()->GetTransactionId() && exec_ctx_->IsDelete()) {
     this->exec_ctx_->GetLockManager()->UnlockRow(this->exec_ctx_->GetTransaction(), plan_->GetTableOid(),

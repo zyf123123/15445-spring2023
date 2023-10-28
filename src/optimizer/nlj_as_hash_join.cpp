@@ -70,7 +70,8 @@ auto Optimizer::OptimizeNLJAsHashJoin(const AbstractPlanNodeRef &plan) -> Abstra
         std::vector<AbstractExpressionRef> right_exprs;
         for (const auto &left_expr : expr_logic->children_) {
           for (auto const &expr_tuple : left_expr->children_) {
-            if (dynamic_cast<ColumnValueExpression *>(expr_tuple.get())->GetTupleIdx() == 0) {
+            if (auto column_expr = dynamic_cast<ColumnValueExpression *>(expr_tuple.get());
+                column_expr != nullptr && column_expr->GetTupleIdx() == 0) {
               left_exprs.emplace_back(expr_tuple);
             } else {
               right_exprs.emplace_back(expr_tuple);
@@ -83,7 +84,7 @@ auto Optimizer::OptimizeNLJAsHashJoin(const AbstractPlanNodeRef &plan) -> Abstra
       }
     }
   }
-  return plan;
+  return optimized_plan;
 }
 
 }  // namespace bustub

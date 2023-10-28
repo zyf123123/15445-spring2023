@@ -6,6 +6,7 @@
 #include "execution/plans/sort_plan.h"
 #include "execution/plans/topn_plan.h"
 
+#include "execution/plans/mock_scan_plan.h"
 #include "optimizer/optimizer.h"
 
 namespace bustub {

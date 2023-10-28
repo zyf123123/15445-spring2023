@@ -332,18 +332,18 @@ void LockManager::UnlockAll() {
 }
 
 void LockManager::AddEdge(txn_id_t t1, txn_id_t t2) {
-  waits_for_latch_.lock();
+  // waits_for_latch_.lock();
   if (waits_for_.find(t1) == waits_for_.end()) {
     waits_for_[t1] = std::vector<txn_id_t>();
   }
   for (const auto &t : waits_for_[t1]) {
     if (t == t2) {
-      waits_for_latch_.unlock();
+      // waits_for_latch_.unlock();
       return;
     }
   }
   waits_for_[t1].emplace_back(t2);
-  waits_for_latch_.unlock();
+  // waits_for_latch_.unlock();
 }
 
 void LockManager::RemoveEdge(txn_id_t t1, txn_id_t t2) {

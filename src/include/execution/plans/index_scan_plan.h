@@ -15,6 +15,7 @@
 #include <string>
 #include <utility>
 
+#include <vector>
 #include "catalog/catalog.h"
 #include "execution/expressions/abstract_expression.h"
 #include "execution/plans/abstract_plan.h"
@@ -38,16 +39,23 @@ class IndexScanPlanNode : public AbstractPlanNode {
   /** @return the identifier of the table that should be scanned */
   auto GetIndexOid() const -> index_oid_t { return index_oid_; }
 
+  auto AddIndexPredicate(const AbstractExpressionRef &expr) -> void { filter_predicate_.emplace_back(expr); }
+
   BUSTUB_PLAN_NODE_CLONE_WITH_CHILDREN(IndexScanPlanNode);
 
   /** The table whose tuples should be scanned. */
   index_oid_t index_oid_;
 
   // Add anything you want here for index lookup
+  std::vector<AbstractExpressionRef> filter_predicate_;
 
  protected:
   auto PlanNodeToString() const -> std::string override {
-    return fmt::format("IndexScan {{ index_oid={} }}", index_oid_);
+    auto result = fmt::format("IndexScan {{ index_oid={} }}", index_oid_);
+    for (auto &expr : filter_predicate_) {
+      result += fmt::format("{{ filter={} }}", expr);
+    }
+    return result;
   }
 };
 

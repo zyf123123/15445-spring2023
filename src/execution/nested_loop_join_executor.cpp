@@ -37,6 +37,7 @@ auto NestedLoopJoinExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   auto left_schema = left_executor_->GetOutputSchema();
   auto right_schema = right_executor_->GetOutputSchema();
 
+  // std::cout  << this->right_tuple_num_ << std::endl;
   if (left_tuple_.GetData() == nullptr) {
     if (!left_executor_->Next(&left_tuple_, rid)) {
       return false;

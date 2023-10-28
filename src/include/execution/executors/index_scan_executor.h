@@ -54,5 +54,7 @@ class IndexScanExecutor : public AbstractExecutor {
 
   /** The iterator of the B+ tree index */
   std::unique_ptr<BPlusTreeIndexIteratorForTwoIntegerColumn> iter_;
+
+  std::unique_ptr<BPlusTreeIndexIteratorForTwoIntegerColumn> end_;
 };
 }  // namespace bustub
